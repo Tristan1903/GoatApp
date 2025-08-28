@@ -1,0 +1,345 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+  <div class="card shadow-sm">
+    <div class="card-body p-4 p-md-5">
+      <h2 class="card-title mb-2">{{ role_label }} Scheduler</h2>
+
+      <div class="d-flex align-items-center mb-3">
+        <div class="btn-group" role="group" aria-label="Scheduler role quick links">
+          <a href="{{ url_for('scheduler_bartenders') }}"
+             class="btn {% if role_name == 'bartender' %}btn-primary{% else %}btn-outline-primary{% endif %}">Bartenders</a>
+          <a href="{{ url_for('scheduler_waiters') }}"
+             class="btn {% if role_name == 'waiter' %}btn-primary{% else %}btn-outline-primary{% endif %}">Waiters</a>
+          <a href="{{ url_for('scheduler_skullers') }}"
+             class="btn {% if role_name == 'skullers' %}btn-primary{% else %}btn-outline-primary{% endif %}">Skullers</a>
+          <a href="{{ url_for('scheduler_managers') }}"
+             class="btn {% if role_name == 'manager' %}btn-primary{% else %}btn-outline-primary{% endif %}">Managers</a>
+        </div>
+        <a href="{{ url_for('manage_required_staff', role_name=role_name) }}" class="btn btn-outline-info ms-3">
+            <i class="fas fa-cog me-2"></i>Manage Staff Minimums
+        </a>
+        <a href="{{ url_for('export_schedule_for_role', role_name=role_name) }}" class="btn btn-outline-secondary ms-2">
+            <i class="fas fa-file-csv me-2"></i>Export to CSV
+        </a>
+      </div>
+
+      <p class="text-muted mb-4">Assign staff for the week starting {{ week_dates[0].strftime('%A, %b %d') }}. Columns: Tue → Sun.</p>
+
+      {# NEW: Collapsible Shift Time Rules for the current scheduling role #}
+      {% set current_role_shift_defs = role_shift_definitions.get(role_name, role_shift_definitions.get('manager')) %} {# Fallback to manager for display #}
+      {% if current_role_shift_defs %}
+          <div class="mb-4">
+              <button class="btn btn-light w-100 text-start" type="button" data-bs-toggle="collapse" data-bs-target="#shiftTimesCollapse" aria-expanded="true" aria-controls="shiftTimesCollapse">
+                  <i class="fas fa-clock me-2"></i> Toggle Shift Time Rules for {{ role_label }}s
+              </button>
+              <div class="collapse show" id="shiftTimesCollapse">
+                  <div class="p-3 border rounded-bottom bg-light">
+                      <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-2">
+                          {% for day in display_dates %}
+                              {% set day_name = day.strftime('%A') %}
+                              {% set day_specific_defs = current_role_shift_defs.get(day_name, current_role_shift_defs.get('default')) %}
+                              {% if day_specific_defs %}
+                                  <div class="col">
+                                      <strong>{{ day_name }}</strong>
+                                      <ul class="list-unstyled mb-0">
+                                          {% for st in scheduler_shift_types_generic %}
+                                              {% set times = day_specific_defs.get(st) %}
+                                              {% if times %} {# Only display types that have a definition for this role/day #}
+                                                  <li>{{ st }}: {{ times.start }} - {{ times.end }}</li>
+                                              {% endif %}
+                                          {% endfor %}
+                                      </ul>
+                                  </div>
+                              {% endif %}
+                          {% endfor %}
+                      </div>
+                  </div>
+              </div>
+          </div>
+      {% endif %}
+
+      <form method="POST">
+        <div class="table-responsive-lg">
+          <table class="table table-bordered" style="table-layout: fixed;">
+            <thead class="table-dark">
+              <tr>
+                <th style="width:220px;">User</th>
+                {% for day in display_dates %}
+                  {% set day_iso = day.isoformat() %}
+                  {% set status = staffing_status.get(day_iso) %}
+                  <th class="text-center">
+                    {{ day.strftime('%a %d') }}
+                    {# Display minimum staff and status #}
+                    {% if status %}
+                        <div class="small mt-1">
+                            Min: {{ status.min_staff }} / Assigned: {{ status.assigned_count }}
+                        </div>
+                        <div class="small fw-bold {{ status.status_class }}">
+                            {{ status.status_text }}
+                        </div>
+                    {% else %}
+                        <div class="small mt-1 text-muted">Min: N/A</div>
+                        <div class="small text-muted">No Status</div>
+                    {% endif %}
+                  </th>
+                {% endfor %}
+              </tr>
+            </thead>
+
+            <tbody>
+              {% for user in users %}
+                <tr>
+                  <td class="fw-bold align-middle">{{ user.full_name }}</td>
+                  {% for day in display_dates %}
+                    {% set day_iso = day.isoformat() %}
+                    {% set availability = user_availability.get(user.id, {}).get(day, []) %}
+                    {% set current_assignment = assignments.get(day, {}).get(user.id) %} {# Now a Schedule object #}
+                    <td>
+                        {# Display user availability #}
+                        {% if availability %}
+                            <div class="mb-2">
+                                Submitted: <strong>{{ availability|join(', ') }}</strong>
+                            </div>
+                        {% else %}
+                            <div class="mb-2 text-muted">No submission</div>
+                        {% endif %}
+
+                        {# Dropdown to assign this user to a shift type for this day #}
+                        <div class="assign-controls">
+                            <select name="assignment_{{ day_iso }}_{{ user.id }}"
+                                    class="form-select form-select-sm shift-assignment-select"
+                                    data-user-id="{{ user.id }}"
+                                    data-day-iso="{{ day_iso }}"
+                                    data-current-start-time="{{ current_assignment.start_time_str if current_assignment else '' }}"
+                                    data-current-end-time="{{ current_assignment.end_time_str if current_assignment else '' }}">
+                                <option value="">Not Scheduled</option>
+                                {% set day_name = day.strftime('%A') %}
+                                {% set available_shifts_for_day_role = get_role_specific_shift_types(role_name, day_name) %}
+
+                                {% for st in scheduler_shift_types_generic %}
+                                    {% if st in available_shifts_for_day_role %}
+                                        {% set shift_time_display = get_shift_time_display(role_name, day_name, st) %}
+                                        <option value="{{ st }}" {% if current_assignment and current_assignment.assigned_shift == st %}selected{% endif %}>
+                                            {{ st }} {{ shift_time_display }}
+                                        </option>
+                                    {% endif %}
+                                {% endfor %}
+                            </select>
+                            {# NEW: Hidden inputs for custom times - now used by Split Double, Double A, Double B #}
+                            <input type="hidden"
+                                   name="assignment_{{ day_iso }}_{{ user.id }}_start_time"
+                                   class="custom-start-time"
+                                   value="{{ current_assignment.start_time_str if current_assignment else '' }}">
+                            <input type="hidden"
+                                   name="assignment_{{ day_iso }}_{{ user.id }}_end_time"
+                                   class="custom-end-time"
+                                   value="{{ current_assignment.end_time_str if current_assignment else '' }}">
+                        </div>
+
+                         <div class="mt-2 small text-muted">
+                            {# Display current assignment details for this user #}
+                            {% if current_assignment %}
+                                {% if current_assignment.assigned_shift in ['Split Double', 'Double A', 'Double B'] and current_assignment.start_time_str and current_assignment.end_time_str %}
+                                    Currently: {{ current_assignment.assigned_shift }} ({{ current_assignment.start_time_str }} - {{ current_assignment.end_time_str }})
+                                {% else %}
+                                    Currently: {{ current_assignment.assigned_shift }}
+                                {% endif %}
+                            {% else %}
+                                Currently: Not Scheduled
+                            {% endif %}
+                        </div>
+                    </td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="d-flex justify-content-end align-items-center mt-3">
+          <button type="submit" name="action" value="save_draft" class="btn btn-secondary me-2">Save Draft</button>
+          <button type="submit" name="action" value="publish" class="btn btn-primary">Save and Publish</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+
+{# NEW: Custom Shift Time Input Modal (Generalized from Split Double) #}
+<div class="modal fade" id="customShiftTimeInputModal" tabindex="-1" aria-labelledby="customShiftTimeInputModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="customShiftTimeInputModalLabel">Enter Custom Shift Times</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p><strong id="modalShiftTypeDisplay"></strong> for <strong id="modalUserNameDisplay"></strong> on <strong id="modalDayDisplay"></strong></p>
+        <div class="mb-3">
+          <label for="customShiftStartTime" class="form-label">Start Time</label>
+          <input type="time" class="form-control" id="customShiftStartTime" required>
+        </div>
+        <div class="mb-3">
+          <label for="customShiftEndTime" class="form-label">End Time</label>
+          <input type="time" class="form-control" id="customShiftEndTime">
+          <div class="form-check mt-2">
+            <input class="form-check-input" type="checkbox" id="customShiftEndTimeClose">
+            <label class="form-check-label" for="customShiftEndTimeClose">
+              Set End Time to "Close"
+            </label>
+          </div>
+        </div>
+        <input type="hidden" id="modalUserId">
+        <input type="hidden" id="modalDayIso">
+        <input type="hidden" id="modalSelectedShiftType">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="saveCustomShiftTimes">Save Times</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // --- Custom Shift Time Input Logic ---
+    const customShiftTimeInputModal = new bootstrap.Modal(document.getElementById('customShiftTimeInputModal'), {});
+    const customShiftStartTimeInput = document.getElementById('customShiftStartTime');
+    const customShiftEndTimeInput = document.getElementById('customShiftEndTime');
+    const customShiftEndTimeCloseCheckbox = document.getElementById('customShiftEndTimeClose');
+    const saveCustomShiftTimesBtn = document.getElementById('saveCustomShiftTimes');
+
+    const modalUserIdInput = document.getElementById('modalUserId');
+    const modalDayIsoInput = document.getElementById('modalDayIso');
+    const modalSelectedShiftTypeInput = document.getElementById('modalSelectedShiftType');
+
+    const modalShiftTypeDisplay = document.getElementById('modalShiftTypeDisplay');
+    const modalUserNameDisplay = document.getElementById('modalUserNameDisplay');
+    const modalDayDisplay = document.getElementById('modalDayDisplay');
+
+    // Fetch ROLE_SHIFT_DEFINITIONS from Python to use in JS
+    const ROLE_SHIFT_DEFINITIONS_JS = {{ role_shift_definitions | tojson | safe }};
+    const CURRENT_SCHEDULER_ROLE_NAME_JS = "{{ role_name }}";
+
+    function getPredefinedShiftTimes(roleName, dayName, shiftType) {
+        const roleDef = ROLE_SHIFT_DEFINITIONS_JS[roleName] || ROLE_SHIFT_DEFINITIONS_JS['manager'];
+        const dayDef = roleDef[dayName] || roleDef['default'];
+        return dayDef ? dayDef[shiftType] : null;
+    }
+
+    // Toggle end time input based on "Close" checkbox
+    customShiftEndTimeCloseCheckbox.addEventListener('change', function() {
+        if (this.checked) {
+            customShiftEndTimeInput.value = '';
+            customShiftEndTimeInput.disabled = true;
+            customShiftEndTimeInput.removeAttribute('required'); // Remove required when "Close" is selected
+        } else {
+            customShiftEndTimeInput.disabled = false;
+            customShiftEndTimeInput.setAttribute('required', 'required'); // Re-add required
+        }
+    });
+
+    document.querySelectorAll('.shift-assignment-select').forEach(selectElement => {
+        selectElement.addEventListener('change', function() {
+            const userId = this.dataset.userId;
+            const dayIso = this.dataset.dayIso;
+            const selectedShift = this.value;
+            const userName = this.closest('tr').querySelector('td:first-child').textContent.trim();
+            const dayName = new Date(dayIso + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long' });
+
+            const customShiftTypes = ['Open','Split Double', 'Double A', 'Double B'];
+
+            if (customShiftTypes.includes(selectedShift)) {
+                modalUserIdInput.value = userId;
+                modalDayIsoInput.value = dayIso;
+                modalSelectedShiftTypeInput.value = selectedShift;
+
+                modalShiftTypeDisplay.textContent = selectedShift;
+                modalUserNameDisplay.textContent = userName;
+                modalDayDisplay.textContent = dayName;
+
+                // Pre-fill modal with existing values from hidden inputs or predefined values
+                const startTimeHiddenInput = document.querySelector(`input[name="assignment_${dayIso}_${userId}_start_time"]`);
+                const endTimeHiddenInput = document.querySelector(`input[name="assignment_${dayIso}_${userId}_end_time"]`);
+
+                let storedStartTime = startTimeHiddenInput ? startTimeHiddenInput.value : '';
+                let storedEndTime = endTimeHiddenInput ? endTimeHiddenInput.value : '';
+
+                // Get predefined times for the selected shift type
+                const predefinedTimes = getPredefinedShiftTimes(CURRENT_SCHEDULER_ROLE_NAME_JS, dayName, selectedShift);
+
+                // Set start time: use stored value, then predefined, then empty
+                customShiftStartTimeInput.value = storedStartTime || (predefinedTimes ? predefinedTimes.start : '');
+
+                // Set end time and checkbox state
+                if (storedEndTime.toLowerCase() === 'close') {
+                    customShiftEndTimeCloseCheckbox.checked = true;
+                    customShiftEndTimeInput.value = ''; // Clear time input if 'Close' is checked
+                    customShiftEndTimeInput.disabled = true;
+                    customShiftEndTimeInput.removeAttribute('required');
+                } else {
+                    customShiftEndTimeCloseCheckbox.checked = false;
+                    customShiftEndTimeInput.value = storedEndTime || (predefinedTimes ? predefinedTimes.end : '');
+                    customShiftEndTimeInput.disabled = false;
+                    customShiftEndTimeInput.setAttribute('required', 'required');
+                }
+                
+                customShiftTimeInputModal.show();
+            } else {
+                // Clear custom time hidden inputs if a non-custom shift is selected
+                document.querySelector(`input[name="assignment_${dayIso}_${userId}_start_time"]`).value = '';
+                document.querySelector(`input[name="assignment_${dayIso}_${userId}_end_time"]`).value = '';
+            }
+        });
+    });
+
+    saveCustomShiftTimesBtn.addEventListener('click', function() {
+        const userId = modalUserIdInput.value;
+        const dayIso = modalDayIsoInput.value;
+        const selectedShiftType = modalSelectedShiftTypeInput.value;
+        
+        const startTime = customShiftStartTimeInput.value;
+        let endTime = customShiftEndTimeInput.value;
+
+        if (!startTime) {
+            alert('Please enter a start time.');
+            return;
+        }
+
+        if (!customShiftEndTimeCloseCheckbox.checked && !endTime) {
+            alert('Please enter an end time or select "Close".');
+            return;
+        }
+        
+        if (customShiftEndTimeCloseCheckbox.checked) {
+            endTime = "Close";
+        }
+
+        const startTimeHiddenInput = document.querySelector(`input[name="assignment_${dayIso}_${userId}_start_time"]`);
+        const endTimeHiddenInput = document.querySelector(`input[name="assignment_${dayIso}_${userId}_end_time"]`);
+
+        if (startTimeHiddenInput) startTimeHiddenInput.value = startTime;
+        if (endTimeHiddenInput) endTimeHiddenInput.value = endTime;
+        
+        customShiftTimeInputModal.hide();
+    });
+
+    // Clear modal inputs and reset state when modal is hidden
+    document.getElementById('customShiftTimeInputModal').addEventListener('hidden.bs.modal', function () {
+        customShiftStartTimeInput.value = '';
+        customShiftEndTimeInput.value = '';
+        customShiftEndTimeCloseCheckbox.checked = false;
+        customShiftEndTimeInput.disabled = false;
+        customShiftEndTimeInput.setAttribute('required', 'required');
+    });
+});
+</script>
+{% endblock scripts %}
+{% endblock %}
