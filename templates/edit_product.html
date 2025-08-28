@@ -1,3 +1,5 @@
+<!-- START OF FILE edit_product.html -->
+
 {% extends "base.html" %}
 
 {% block title %}Edit Product{% endblock %}
@@ -27,6 +29,12 @@
                         <div class="mb-3">
                             <label for="unit_of_measure" class="form-label">Unit of Measure</label>
                             <input type="text" id="unit_of_measure" name="unit_of_measure" value="{{ product.unit_of_measure }}" class="form-control" required>
+                        </div>
+
+                        {# NEW: Add Product Number input field #}
+                        <div class="mb-3">
+                            <label for="product_number" class="form-label">Product # (Optional)</label>
+                            <input type="text" id="product_number" name="product_number" class="form-control" value="{{ product.product_number if product.product_number is not none else '' }}" placeholder="e.g., SKU-12345">
                         </div>
 
                         <div class="mb-3">

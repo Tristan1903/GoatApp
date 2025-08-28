@@ -1,3 +1,5 @@
+<!-- START OF FILE products.html -->
+
 {% extends "base.html" %}
 
 {% block title %}Manage Products{% endblock %}
@@ -26,7 +28,12 @@
                             <label for="unit_of_measure" class="form-label">Unit of Measure</label>
                             <input type="text" id="unit_of_measure" name="unit_of_measure" class="form-control" required placeholder="e.g., Bottles, kg, L">
                         </div>
-                        <div class="col-md-8">
+                        {# NEW: Add Product Number input #}
+                        <div class="col-md-4">
+                            <label for="product_number" class="form-label">Product # (Optional)</label>
+                            <input type="text" id="product_number" name="product_number" class="form-control" placeholder="e.g., SKU-12345">
+                        </div>
+                        <div class="col-md-4">
                             <label for="unit_price" class="form-label">Unit Price (Optional)</label>
                             <div class="input-group">
                                 <span class="input-group-text">R</span>
@@ -49,6 +56,8 @@
                                 <th>Product Name</th>
                                 <th>Type</th>
                                 <th>Unit of Measure</th>
+                                {# NEW: Add table header for Product Number #}
+                                <th>Product #</th> 
                                 <th>Unit Price</th>
                                 <th>Actions</th>
                             </tr>
@@ -59,6 +68,8 @@
                                 <td>{{ product.name }}</td>
                                 <td>{{ product.type }}</td>
                                 <td>{{ product.unit_of_measure }}</td>
+                                {# NEW: Display Product Number #}
+                                <td>{{ product.product_number if product.product_number is not none else 'N/A' }}</td>
                                 <td>R{{ "%.2f"|format(product.unit_price) if product.unit_price is not none else 'N/A' }}</td>
                                 <td>
                                     {# NEW: Set Stock button #}

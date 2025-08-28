@@ -765,6 +765,8 @@ class Product(db.Model):
     type = db.Column(db.String(50), nullable=False)
     unit_of_measure = db.Column(db.String(10), nullable=False)
     unit_price = db.Column(db.Float, nullable=True)
+    # NEW: Add product_number field
+    product_number = db.Column(db.String(50)) 
     counts = db.relationship('Count', backref='product', lazy=True, cascade="all, delete-orphan")
     locations = db.relationship('Location', secondary=product_location, back_populates='products', lazy='dynamic')
 
@@ -4105,8 +4107,13 @@ def products():
     if request.method == 'POST':
         name, p_type, unit = (request.form.get(k) for k in ['name', 'type', 'unit_of_measure'])
         unit_price = request.form.get('unit_price')
+        # NEW: Retrieve product_number from form
+        product_number = request.form.get('product_number') 
+        
         new_product = Product(name=name, type=p_type, unit_of_measure=unit,
-                              unit_price=float(unit_price) if unit_price else None)
+                              unit_price=float(unit_price) if unit_price else None,
+                              # NEW: Assign product_number
+                              product_number=product_number if product_number else None)
         db.session.add(new_product)
         db.session.commit()
         flash('Product added successfully!', 'success')
@@ -4125,6 +4132,9 @@ def edit_product(product_id):
         product.unit_of_measure = request.form['unit_of_measure']
         unit_price = request.form.get('unit_price')
         product.unit_price = float(unit_price) if unit_price else None
+        # NEW: Update product_number
+        product_number = request.form.get('product_number')
+        product.product_number = product_number if product_number else None
         db.session.commit()
         flash('Product updated successfully!', 'success')
         return redirect(url_for('products'))
